@@ -6,6 +6,12 @@ from scrapy.utils.misc import arg_to_iter
 from scrapy import log
 
 
+class PassThrough(object):
+
+    def __call__(self, values):
+        return values
+
+
 class Prefix(object):
 
     def __init__(self, prefix=u''):
