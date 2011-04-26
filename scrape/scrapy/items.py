@@ -7,10 +7,10 @@ from django.core.files import File
 from django.db.models import OneToOneField, ForeignKey, FileField, ImageField
 from django.db.models.fields.related import RelatedField, ManyToManyField
 from django.db.models.fields.subclassing import SubfieldBase
+from django.core.exceptions import ObjectDoesNotExist
 from processors import *
-from gigspot_site.scrape import utils
-from gigspot_site.scrape.utils import conv
 from gigspot_site.address.models import AddressField
+from ..pythonutils.conv import to_datetime
 
 
 class DjangoItemMeta(ItemMeta):
@@ -55,6 +55,7 @@ class DjangoItemMeta(ItemMeta):
             cls._scrape_model = django_model
             target = django_model._meta.get_field_by_name('target')[0]
             django_model = target.rel.to
+            cls.django_model = django_model
         else:
             cls._scrape_model = None
 
@@ -102,9 +103,14 @@ class DjangoItemMeta(ItemMeta):
                 cls.fields[field.name] = Field(input_processor=ip, output_processor=op)
 
                 # If we have a scrape model, add the extra fields.
-                if scrape_model:
-                    cls.fields[field.name + '_source'] = Field()
-                    cls.fields[field.name + '_timestamp'] = Field(input_processor=DateTime())
+                # if scrape_model:
+                #     cls.fields[field.name + '_source'] = Field(
+                #         output_processor=TakeFirst(),
+                #     )
+                #     cls.fields[field.name + '_timestamp'] = Field(
+                #         input_processor=DateTime(),
+                #         output_processor=TakeFirst(),
+                #     )
 
         # Create a group of related fields.
         cls._model_rel_fields = cls._model_fk_fields + cls._model_m2m_fields
@@ -114,19 +120,29 @@ class DjangoItemMeta(ItemMeta):
         return cls
 
 
-def get_field_query(field, value):
+def get_field_value(field, value):
     if value in ('', None, []):
         return None
     if isinstance(field, AddressField):
-        # Unfortunate, but necessary.
         address = field.to_python(value)
         address.locality.state.country.save()
+        address.locality.state.country_id = address.locality.state.country.pk
         address.locality.state.save()
         address.locality.state_id = address.locality.state.pk
         address.locality.save()
         address.locality_id = address.locality.pk
         address.save()
-        return ('', address)
+        return address
+    else:
+        return value
+
+
+def get_field_query(field, value):
+    if value in ('', None, []):
+        return None
+    value = get_field_value(field, value)
+    if isinstance(field, AddressField):
+        return ('', value)
     elif isinstance(field, ManyToManyField):
         return ('__contains', value)
     elif isinstance(field, FileField):
@@ -140,9 +156,15 @@ class DjangoItem(Item):
 
     # We use the "id" field to form links between models for related fields.
     id = Field(input_processor=MapCompose(RemoveEntities(), Strip()), output_processor=TakeFirst())
-    scrape_url = Field()
+    scrape_url = Field(output_processor=TakeFirst())
 
     def save(self):
+        # Convert all our values as needed. Mostly for addresses, dammit.
+        for field in self._model_fields:
+            value = self.get(field.name)
+            if value not in ['', None, []]:
+                self[field.name] = get_field_value(field, value)
+
         # Create a search filter, beginning by adding all my unique fields.
         fltr = {}
         for field in self._model_fields:
@@ -168,30 +190,86 @@ class DjangoItem(Item):
         if fltr:
             obj, created = self.django_model.objects.get_or_create(**fltr)
         else:
-            obj, created = self.django_model.objects.create(), True
+
+            # If we're making a new object, be sure to fill required fields.
+            required = {}
+            for field in self._model_fields:
+                if field.blank == False:
+                    value = self.get(field.name)
+                    if value is None:
+                        print self
+                    assert value is not None
+                    required[field.name] = value
+            obj, created = self.django_model.objects.create(**required), True
+
+        # If we're using a scrape model, find/create a ScrapeModel object.
+        if self._scrape_model is not None:
+            try:
+                scrape_obj = obj.scrape
+            except ObjectDoesNotExist:
+                scrape_obj = self._scrape_model(target=obj)
+        else:
+            scrape_obj = None
 
         # We perform a fill operation even on new objects because of the possibility
         # that the filter we uesed to find an existing object contained '__' notations,
         # e.g. any many-to-many field.
         for field in self._model_fields:
+            name = field.name
+            cur_value = getattr(obj, name)
+
+            # If the value to set is None, skip it.
+            if self.get(name) is None:
+                continue
+
+            # If we're using a ScrapeModel, first check if the field has already been
+            # validated.
+            if scrape_obj:
+                if getattr(scrape_obj, name + '_valid') == True:
+                    continue # alrady validated, skip
 
             # If the field is an m2m, perform a merge.
+            modified = False
             if isinstance(field, ManyToManyField):
-                to_insert = arg_to_iter(self.get(field.name))
-                existing = getattr(obj, field.name).all()
+                to_insert = arg_to_iter(self.get(name))
+                existing = cur_value.all()
                 to_insert = [t for t in to_insert if t not in existing]
                 for itm in to_insert:
-                    getattr(obj, field.name).add(itm)
+                    cur_value.add(itm)
+                    modified = True
 
             # If we have a file field we need special consideration.
             elif isinstance(field, FileField):
-                path = self.get(field.name)
+                path = self.get(name)
                 filename = os.path.basename(path)
-                getattr(obj, field.name).save(filename, File(open(path, 'rb')))
+                cur_value.save(filename, File(open(path, 'rb')))
+                modified = True
 
             # Otherwise just check if a value already exists.
-            elif getattr(obj, field.name) in ['', None]:
-                setattr(obj, field.name, self.get(field.name))
+            elif cur_value in ['', None]:
+                setattr(obj, name, self.get(name))
+                modified = True
+
+            # If we're using a scrape model and we changed the field, update the scrape data. Or,
+            # if there is no existing value for either the source or timestamp, fill them in.
+            if scrape_obj:
+
+                # Timestamp.
+                cur_name = name + '_timestamp'
+                cur_val = getattr(scrape_obj, cur_name)
+                if not cur_val or modified:
+                    setattr(scrape_obj, cur_name, datetime.now())#to_datetime(self[cur_name]))
+
+                # Source
+                cur_name = name + '_source'
+                cur_val = getattr(scrape_obj, cur_name)
+                if not cur_val or modified:
+                    setattr(scrape_obj, cur_name, self['scrape_url'])#self[cur_name])
+
+        # Save both the object and the scrape object.
+        obj.save()
+        if scrape_obj:
+            scrape_obj.save()
 
         return obj
 
@@ -200,7 +278,7 @@ class DjangoItemLoader(ItemLoader):
 
     def __init__(self, item, response, id=None, **kwargs):
         ItemLoader.__init__(self, item, **kwargs)
-        self._source = str(response.url)
+#        self._source = str(response.url)
         if id is not None:
             self.add_value('id', id)
         self.add_value('scrape_url', response.url)
@@ -215,9 +293,9 @@ class DjangoItemLoader(ItemLoader):
         parent = super(DjangoItemLoader, self)
 
         # If we using our special ScrapeModel class, add in the extra bits.
-        if self.item._scrape_model and field_name not in ['id', 'scrape_url']:
-            parent.replace_value(field_name + '_source', self._source)
-            parent.replace_value(field_name + '_timestamp', datetime.now())
+        # if self.item._scrape_model and field_name not in ['id', 'scrape_url']:
+        #     parent.replace_value(field_name + '_source', self._source)
+        #     parent.replace_value(field_name + '_timestamp', datetime.now())
 
         return getattr(parent, call)(field_name, value, *args, **kwargs)
 
@@ -226,7 +304,7 @@ class DjangoXPathItemLoader(XPathItemLoader):
 
     def __init__(self, item, response, id, selector=None, **context):
         XPathItemLoader.__init__(self, item, selector, response, **context)
-        self._source = str(response.url)
+#        self._source = str(response.url)
         if id is not None:
             self.add_value('id', id)
         self.add_value('scrape_url', response.url)
@@ -241,8 +319,8 @@ class DjangoXPathItemLoader(XPathItemLoader):
         parent = super(DjangoXPathItemLoader, self)
 
         # If we using our special ScrapeModel class, add in the extra bits.
-        if self.item._scrape_model and field_name not in ['id', 'scrape_url']:
-            parent.replace_value(field_name + '_source', self._source)
-            parent.replace_value(field_name + '_timestamp', datetime.now())
+        # if self.item._scrape_model and field_name not in ['id', 'scrape_url']:
+        #     parent.replace_value(field_name + '_source', self._source)
+        #     parent.replace_value(field_name + '_timestamp', str(datetime.now()))
 
         return getattr(parent, call)(field_name, value, *args, **kwargs)

@@ -56,29 +56,18 @@ class DjangoItemPipeline(object):
             self.spider_objs[spider][id] = None
             if isinstance(dfd, Deferred):
                 dfd.callback(None)
-            raise DropItem(msg)
+        raise DropItem(msg)
 
     def save_item(self, result, item, spider):
         obj_map = self.spider_objs[spider]
-        for k,v in obj_map.iteritems():
-            if isinstance(v, Deferred):
-                print '***: ' + repr(k)
+        # for k,v in obj_map.iteritems():
+        #     if isinstance(v, Deferred):
+        #         print '***: ' + repr(k)
         item_id = item.get('id')
 
         # Map the item's values.
         for field in item._model_fields:
             name = field.name
-
-            # Check for missing/empty values.
-            if name not in item or item[name] in [None, '', []]:
-                if not field.blank:
-                    self.drop_item(
-                        spider, item_id,
-                        '%s.%s cannot be null for "%s".'%(
-                            item.django_model.__name__, name, item['scrape_url'])
-                    )
-                else:
-                    continue
 
             # Process related fields.
             if field in item._model_rel_fields:
@@ -117,6 +106,15 @@ class DjangoItemPipeline(object):
                     item[name] = path
                 else:
                     item[name] = None
+
+            # Check for missing/empty values.
+            if item.get(name) in [None, '', []]:
+                if field.blank == False:
+                    self.drop_item(
+                        spider, item_id,
+                        '%s.%s cannot be null for "%s".'%(
+                            item.django_model.__name__, name, item['scrape_url'])
+                    )
 
         # Store the results.
         obj = item.save()

@@ -45,27 +45,27 @@ class ScrapeModelBase(ModelBase):
         for field in target_fields:
             if field.name == 'id': # Skip the ID.
                 continue
-            if field.attname in exclude_fields or (include_fields and field.attname not in include_fields):
+            if field.name in exclude_fields or (include_fields and field.name not in include_fields):
                 continue
             scraped_fields.append(field)
 
             # Add the "valid" field.
-            attname = field.attname + '_valid'
+            attname = field.name + '_valid'
             if attname in attrs:
                 raise TypeError('Class attribute "%s" already exists for "%s".'%(attname, name))
             attrs[attname] = models.BooleanField(default=False)
 
             # Add the "source" field.
-            attname = field.attname + '_source'
+            attname = field.name + '_source'
             if attname in attrs:
                 raise TypeError('Class attribute "%s" already exists for "%s".'%(attname, name))
-            attrs[attname] = models.URLField()
+            attrs[attname] = models.URLField(blank=True, null=True)
 
             # Add the "timestamp" field.
-            attname = field.attname + '_timestamp'
+            attname = field.name + '_timestamp'
             if attname in attrs:
                 raise TypeError('Class attribute "%s" already exists for "%s".'%(attname, name))
-            attrs[attname] = models.DateTimeField()
+            attrs[attname] = models.DateTimeField(blank=True, null=True)
 
         # Add a foreign-key to the target model.
         if 'target' in attrs:
