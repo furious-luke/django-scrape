@@ -137,9 +137,15 @@ def get_field_value(field, value):
         return value
 
 
-def get_field_query(field, value):
+def get_field_query(field, value, use_null=False):
     if value in ('', None, []):
-        return None
+        if use_null:
+            if isinstance(field, (django_models.CharField, django_models.TextField)):
+                return ('', '')
+            else:
+                return ('__null', True)
+        else:
+            return None
     value = get_field_value(field, value)
     if isinstance(field, AddressField):
         return ('', value)
@@ -178,10 +184,7 @@ class DjangoItem(Item):
             cur_fltr = {}
             for field_name in unique_set:
                 field = self.django_model._meta.get_field_by_name(field_name)[0]
-                query = get_field_query(field, self.get(field.name, None))
-                if not query: # if any of the fields are not supplied, we can't use it
-                    cur_fltr = {}
-                    break
+                query = get_field_query(field, self.get(field.name, None), use_null=True)
                 cur_fltr.update({field.name + query[0]: query[1]})
             if cur_fltr:
                 fltr.update(cur_fltr)
