@@ -77,6 +77,11 @@ class ScrapeModelBase(ModelBase):
             raise TypeError('Conflict for "_scraped_fields" in "%s".'%name)
         attrs['_scraped_fields'] = scraped_fields
 
+        # Add an attribute to keep track of our target model.
+        if '_scrape_target_model' in attrs:
+            raise TypeError('Conflict for "_scrape_target_model" in "%s".'%name)
+        attrs['_scrape_target_model'] = target_model
+
         # Call our parent's __new__.
         return super(ScrapeModelBase, cls).__new__(cls, name, bases, attrs)
 
