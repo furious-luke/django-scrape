@@ -9,7 +9,7 @@ from django.db.models.fields.related import RelatedField, ManyToManyField
 from django.db.models.fields.subclassing import SubfieldBase
 from django.core.exceptions import ObjectDoesNotExist
 from processors import *
-from gigspot_site.address.models import AddressField
+from address.models import AddressField
 from ..pythonutils.conv import to_datetime
 
 
