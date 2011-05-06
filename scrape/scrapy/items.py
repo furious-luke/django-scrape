@@ -44,7 +44,7 @@ class DjangoItemMeta(ItemMeta):
         # Are we using a ScrapeModel?
         scrape_model = False
         try:
-            from gigspot_site.scrape.models import ScrapeModel
+            from scrape.models import ScrapeModel
             if isinstance(django_model, type(ScrapeModel)):
                 scrape_model = True
         except:
@@ -143,7 +143,7 @@ def get_field_query(field, value, use_null=False):
             if isinstance(field, (django_models.CharField, django_models.TextField)):
                 return ('', '')
             else:
-                return ('__null', True)
+                return ('__isnull', True)
         else:
             return None
     value = get_field_value(field, value)
