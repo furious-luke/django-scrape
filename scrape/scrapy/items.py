@@ -221,8 +221,8 @@ class DjangoItem(Item):
             name = field.name
             cur_value = getattr(obj, name)
 
-            # If the value to set is None, skip it.
-            if self.get(name) is None:
+            # If the value to set is empty, skip it.
+            if self.get(name) in [None, '']:
                 continue
 
             # If we're using a ScrapeModel, first check if the field has already been
@@ -243,13 +243,23 @@ class DjangoItem(Item):
 
             # If we have a file field we need special consideration.
             elif isinstance(field, FileField):
-                path = self.get(name)
-                filename = os.path.basename(path)
-                cur_value.save(filename, File(open(path, 'rb')))
-                modified = True
 
-            # Otherwise just check if a value already exists.
-            elif cur_value in ['', None]:
+                # Only change it if it does not already have a value. If we don't
+                # observe this, we end up with duplicate files.
+                if cur_value in ['', None]:
+                    path = self.get(name)
+                    filename = os.path.basename(path)
+                    cur_value.save(filename, File(open(path, 'rb')))
+                    modified = True
+
+            # # Otherwise just check if a value already exists.
+            # elif cur_value in ['', None]:
+            #     setattr(obj, name, self.get(name))
+            #     modified = True
+
+            # Otherwise, stomp on existing value, bearing in mind that we've already
+            # checked if the value we're writing is empty.
+            else:
                 setattr(obj, name, self.get(name))
                 modified = True
 
