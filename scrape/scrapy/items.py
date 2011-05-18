@@ -1,5 +1,6 @@
-import os
+import os, urllib2
 from datetime import datetime
+from scrapy.exceptions import DropItem
 from scrapy.item import Field, Item, ItemMeta
 from scrapy.contrib.loader import ItemLoader, XPathItemLoader
 import django.db.models as django_models
@@ -10,7 +11,13 @@ from django.db.models.fields.subclassing import SubfieldBase
 from django.core.exceptions import ObjectDoesNotExist
 from processors import *
 from address.models import AddressField
-from ..pythonutils.conv import to_datetime
+from pythonutils.conv import to_datetime
+
+# Don't assume googlemaps is available.
+try:
+    from googlemaps import GoogleMapsError
+except:
+    pass
 
 
 class DjangoItemMeta(ItemMeta):
@@ -120,11 +127,14 @@ class DjangoItemMeta(ItemMeta):
         return cls
 
 
-def get_field_value(field, value):
+def get_field_value(item, field, value, pipeline, spider):
     if value in ('', None, []):
         return None
     if isinstance(field, AddressField):
-        address = field.to_python(value)
+        try:
+            address = field.to_python(value)
+        except GoogleMapsError, urllib2.HTTPError:
+            pipeline.drop_item(spider, item.get('id'), 'Failed to geolocate address.')
         address.locality.state.country.save()
         address.locality.state.country_id = address.locality.state.country.pk
         address.locality.state.save()
@@ -137,7 +147,7 @@ def get_field_value(field, value):
         return value
 
 
-def get_field_query(field, value, use_null=False):
+def get_field_query(item, field, value, pipeline, spider, use_null=False):
     if value in ('', None, []):
         if use_null:
             if isinstance(field, (django_models.CharField, django_models.TextField)):
@@ -146,7 +156,7 @@ def get_field_query(field, value, use_null=False):
                 return ('__isnull', True)
         else:
             return None
-    value = get_field_value(field, value)
+    value = get_field_value(item, field, value, pipeline, spider)
     if isinstance(field, AddressField):
         return ('', value)
     elif isinstance(field, ManyToManyField):
@@ -164,18 +174,18 @@ class DjangoItem(Item):
     id = Field(input_processor=MapCompose(RemoveEntities(), Strip()), output_processor=TakeFirst())
     scrape_url = Field(output_processor=TakeFirst())
 
-    def save(self):
+    def save(self, pipeline, spider):
         # Convert all our values as needed. Mostly for addresses, dammit.
         for field in self._model_fields:
             value = self.get(field.name)
             if value not in ['', None, []]:
-                self[field.name] = get_field_value(field, value)
+                self[field.name] = get_field_value(self, field, value, pipeline, spider)
 
         # Create a search filter, beginning by adding all my unique fields.
         fltr = {}
         for field in self._model_fields:
             if field.unique or isinstance(field, FileField):
-                query = get_field_query(field, self.get(field.name, None))
+                query = get_field_query(self, field, self.get(field.name, None), pipeline, spider)
                 if query:
                     fltr.update({field.name + query[0]: query[1]})
 
@@ -184,7 +194,7 @@ class DjangoItem(Item):
             cur_fltr = {}
             for field_name in unique_set:
                 field = self.django_model._meta.get_field_by_name(field_name)[0]
-                query = get_field_query(field, self.get(field.name, None), use_null=True)
+                query = get_field_query(self, field, self.get(field.name, None), pipeline, spider, use_null=True)
                 cur_fltr.update({field.name + query[0]: query[1]})
             if cur_fltr:
                 fltr.update(cur_fltr)

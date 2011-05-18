@@ -134,3 +134,20 @@ class Date(object):
 
     def __call__(self, values):
         return [v.date() for v in DateTime()(values)]
+
+
+class EverythingAfter(object):
+
+    def __init__(self, delim):
+        self.delim = delim
+
+    def __call__(self, values):
+        values = arg_to_iter(values)
+        out_values = []
+        for value in values:
+            idx = value.find(self.delim)
+            if idx != -1:
+                value = value[idx + len(self.delim):]
+            if value:
+                out_values.append(value)
+        return out_values

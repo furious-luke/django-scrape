@@ -117,7 +117,7 @@ class DjangoItemPipeline(object):
                     )
 
         # Store the results.
-        obj = item.save()
+        obj = item.save(self, spider)
 
         # Store the resultant django object and call the deferred object.
         if item_id is not None:
