@@ -1,8 +1,9 @@
 from django.db import models
+from django.db.models import fields
 from django.db.models.base import ModelBase
 
 
-class ScrapeModelBase(ModelBase):
+class ScrapeModelMetaclass(ModelBase):
 
     ## Override creation.
     # We need to extract the target model from Meta, then create new fields on this class to
@@ -10,81 +11,70 @@ class ScrapeModelBase(ModelBase):
     def __new__(cls, name, bases, attrs):
 
         # Find the Meta class in our attributes.
-        try:
-            meta = attrs['Meta']
-        except:
-            return super(ScrapeModelBase, cls).__new__(cls, name, bases, attrs)
-            # raise TypeError('No "Meta" found during construction of "%s".'%name)
+        meta = attrs.get('Meta', None)
 
-        # Extract all our bits of info.
-        try:
-            target_model = getattr(meta, 'scrape_target_model')
-        except:
-            return super(ScrapeModelBase, cls).__new__(cls, name, bases, attrs)
-            # raise TypeError('Need to define "scrape_target_model" in "Meta" for "%s".'%name)
+        # Extract any meta information.
         include_fields = getattr(meta, 'scrape_include_fields', [])
         exclude_fields = getattr(meta, 'scrape_exclude_fields', [])
 
         # Delete our meta values as Django complains if it finds unknown values.
-        if hasattr(meta, 'scrape_target_model'):
-            del meta.scrape_target_model
         if hasattr(meta, 'scrape_include_fields'):
             del meta.scrape_include_fields
         if hasattr(meta, 'scrape_exclude_fields'):
             del meta.scrape_exclude_fields
 
-        # Pull the fields from our target model.
-        try:
-            target_fields = target_model._meta.fields + target_model._meta.many_to_many
-        except:
-            raise TypeError('Couldn\'t extract fields from target model in "%s", are you passing ' \
-                                'the class itself, not the name?'%name);
+        # Pull the fields from our model.
+        target_fields = []
+        for field_name, value in attrs.iteritems():
+            if not isinstance(value, fields.Field):
+                continue
+            target_fields.append((field_name, value))
+
+        # If there are no target fields end it here.
+        if not target_fields:
+            return super(ScrapeModelMetaclass, cls).__new__(cls, name, bases, attrs)
 
         # Add the appropriate fields to our attribute dictionary.
-        scraped_fields = []
-        for field in target_fields:
-            if field.name == 'id': # Skip the ID.
+        scrape_fields = []
+        for field_name, field in target_fields:
+            if field_name in ['id', 'pk']: # Skip the primary key.
                 continue
-            if field.name in exclude_fields or (include_fields and field.name not in include_fields):
+            if field_name in exclude_fields or (include_fields and field_name not in include_fields):
                 continue
-            scraped_fields.append(field)
+            scrape_fields.append(field_name)
 
             # Add the "valid" field.
-            attname = field.name + '_valid'
+            attname = field_name + '_valid'
             if attname in attrs:
                 raise TypeError('Class attribute "%s" already exists for "%s".'%(attname, name))
             attrs[attname] = models.BooleanField(default=False)
 
             # Add the "source" field.
-            attname = field.name + '_source'
+            attname = field_name + '_source'
             if attname in attrs:
                 raise TypeError('Class attribute "%s" already exists for "%s".'%(attname, name))
             attrs[attname] = models.URLField(blank=True, null=True)
 
             # Add the "timestamp" field.
-            attname = field.name + '_timestamp'
+            attname = field_name + '_timestamp'
             if attname in attrs:
                 raise TypeError('Class attribute "%s" already exists for "%s".'%(attname, name))
             attrs[attname] = models.DateTimeField(blank=True, null=True)
 
-        # Add a foreign-key to the target model.
-        if 'target' in attrs:
-            raise TypeError('Conflict for "target" in "%s".'%name)
-        attrs['target'] = models.OneToOneField(target_model, related_name='scrape')
+        # Call our parent's __new__.
+        inst = super(ScrapeModelMetaclass, cls).__new__(cls, name, bases, attrs)
 
         # Add an attribute to get the fields that are to be scraped.
-        if '_scraped_fields' in attrs:
-            raise TypeError('Conflict for "_scraped_fields" in "%s".'%name)
-        attrs['_scraped_fields'] = scraped_fields
+        if hasattr(inst, '_scrape_fields'):
+            raise TypeError('Conflict for "_scrape_fields" in "%s".'%name)
+        inst._scrape_fields = scrape_fields
 
-        # Add an attribute to keep track of our target model.
-        if '_scrape_target_model' in attrs:
-            raise TypeError('Conflict for "_scrape_target_model" in "%s".'%name)
-        attrs['_scrape_target_model'] = target_model
-
-        # Call our parent's __new__.
-        return super(ScrapeModelBase, cls).__new__(cls, name, bases, attrs)
+        # Return the instance.
+        return inst
 
 
 class ScrapeModel(models.Model):
-    __metaclass__ = ScrapeModelBase
+    __metaclass__ = ScrapeModelMetaclass
+
+    class Meta:
+        abstract = True

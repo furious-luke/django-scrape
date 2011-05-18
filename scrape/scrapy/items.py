@@ -49,22 +49,13 @@ class DjangoItemMeta(ItemMeta):
             return cls
 
         # Are we using a ScrapeModel?
-        scrape_model = False
+        cls._scrape_model = False
         try:
             from scrape.models import ScrapeModel
             if isinstance(django_model, type(ScrapeModel)):
-                scrape_model = True
+                cls._scrape_model = True
         except:
             pass
-
-        # If we were flagged as using a ScrapeModel, hunt down the actual target.
-        if scrape_model:
-            cls._scrape_model = django_model
-            target = django_model._meta.get_field_by_name('target')[0]
-            django_model = target.rel.to
-            cls.django_model = django_model
-        else:
-            cls._scrape_model = None
 
         # Make room for our fields.
         cls._model_meta = django_model._meta
@@ -108,16 +99,6 @@ class DjangoItemMeta(ItemMeta):
             # If we don't already have a field defined, create a new one.
             if field.name not in cls.fields:
                 cls.fields[field.name] = Field(input_processor=ip, output_processor=op)
-
-                # If we have a scrape model, add the extra fields.
-                # if scrape_model:
-                #     cls.fields[field.name + '_source'] = Field(
-                #         output_processor=TakeFirst(),
-                #     )
-                #     cls.fields[field.name + '_timestamp'] = Field(
-                #         input_processor=DateTime(),
-                #         output_processor=TakeFirst(),
-                #     )
 
         # Create a group of related fields.
         cls._model_rel_fields = cls._model_fk_fields + cls._model_m2m_fields
@@ -215,15 +196,6 @@ class DjangoItem(Item):
                     required[field.name] = value
             obj, created = self.django_model.objects.create(**required), True
 
-        # If we're using a scrape model, find/create a ScrapeModel object.
-        if self._scrape_model is not None:
-            try:
-                scrape_obj = obj.scrape
-            except ObjectDoesNotExist:
-                scrape_obj = self._scrape_model(target=obj)
-        else:
-            scrape_obj = None
-
         # We perform a fill operation even on new objects because of the possibility
         # that the filter we uesed to find an existing object contained '__' notations,
         # e.g. any many-to-many field.
@@ -237,8 +209,8 @@ class DjangoItem(Item):
 
             # If we're using a ScrapeModel, first check if the field has already been
             # validated.
-            if scrape_obj:
-                if getattr(scrape_obj, name + '_valid') == True:
+            if self._scrape_model:
+                if getattr(obj, name + '_valid') == True:
                     continue # alrady validated, skip
 
             # If the field is an m2m, perform a merge.
@@ -275,24 +247,22 @@ class DjangoItem(Item):
 
             # If we're using a scrape model and we changed the field, update the scrape data. Or,
             # if there is no existing value for either the source or timestamp, fill them in.
-            if scrape_obj:
+            if self._scrape_model:
 
                 # Timestamp.
                 cur_name = name + '_timestamp'
-                cur_val = getattr(scrape_obj, cur_name)
+                cur_val = getattr(obj, cur_name)
                 if not cur_val or modified:
-                    setattr(scrape_obj, cur_name, datetime.now())#to_datetime(self[cur_name]))
+                    setattr(obj, cur_name, datetime.now())#to_datetime(self[cur_name]))
 
                 # Source
                 cur_name = name + '_source'
-                cur_val = getattr(scrape_obj, cur_name)
+                cur_val = getattr(obj, cur_name)
                 if not cur_val or modified:
-                    setattr(scrape_obj, cur_name, self['scrape_url'])#self[cur_name])
+                    setattr(obj, cur_name, self['scrape_url'])#self[cur_name])
 
         # Save both the object and the scrape object.
         obj.save()
-        if scrape_obj:
-            scrape_obj.save()
 
         return obj
 
@@ -314,12 +284,6 @@ class DjangoItemLoader(ItemLoader):
 
     def _wrapper(self, field_name, value, call, *args, **kwargs):
         parent = super(DjangoItemLoader, self)
-
-        # If we using our special ScrapeModel class, add in the extra bits.
-        # if self.item._scrape_model and field_name not in ['id', 'scrape_url']:
-        #     parent.replace_value(field_name + '_source', self._source)
-        #     parent.replace_value(field_name + '_timestamp', datetime.now())
-
         return getattr(parent, call)(field_name, value, *args, **kwargs)
 
 
@@ -340,10 +304,4 @@ class DjangoXPathItemLoader(XPathItemLoader):
 
     def _wrapper(self, field_name, value, call, *args, **kwargs):
         parent = super(DjangoXPathItemLoader, self)
-
-        # If we using our special ScrapeModel class, add in the extra bits.
-        # if self.item._scrape_model and field_name not in ['id', 'scrape_url']:
-        #     parent.replace_value(field_name + '_source', self._source)
-        #     parent.replace_value(field_name + '_timestamp', str(datetime.now()))
-
         return getattr(parent, call)(field_name, value, *args, **kwargs)
