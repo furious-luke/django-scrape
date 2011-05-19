@@ -56,7 +56,7 @@ class ScrapeModelMetaclass(ModelBase):
             scrape_fields.append(attname)
             if attname in attrs:
                 raise TypeError('Class attribute "%s" already exists for "%s".'%(attname, name))
-            attrs[attname] = models.URLField(blank=True, null=True)
+            attrs[attname] = models.URLField(verify_exists=False, blank=True, null=True)
 
             # Add the "timestamp" field.
             attname = field_name + '_timestamp'
