@@ -36,27 +36,31 @@ class ScrapeModelMetaclass(ModelBase):
 
         # Add the appropriate fields to our attribute dictionary.
         scrape_fields = []
+        scrape_valid_fields = []
         for field_name, field in target_fields:
             if field_name in ['id', 'pk']: # Skip the primary key.
                 continue
             if field_name in exclude_fields or (include_fields and field_name not in include_fields):
                 continue
-            scrape_fields.append(field_name)
 
             # Add the "valid" field.
             attname = field_name + '_valid'
+            scrape_fields.append(attname)
+            scrape_valid_fields.append(attname)
             if attname in attrs:
                 raise TypeError('Class attribute "%s" already exists for "%s".'%(attname, name))
             attrs[attname] = models.BooleanField(default=False)
 
             # Add the "source" field.
             attname = field_name + '_source'
+            scrape_fields.append(attname)
             if attname in attrs:
                 raise TypeError('Class attribute "%s" already exists for "%s".'%(attname, name))
             attrs[attname] = models.URLField(blank=True, null=True)
 
             # Add the "timestamp" field.
             attname = field_name + '_timestamp'
+            scrape_fields.append(attname)
             if attname in attrs:
                 raise TypeError('Class attribute "%s" already exists for "%s".'%(attname, name))
             attrs[attname] = models.DateTimeField(blank=True, null=True)
@@ -68,6 +72,9 @@ class ScrapeModelMetaclass(ModelBase):
         if hasattr(inst, '_scrape_fields'):
             raise TypeError('Conflict for "_scrape_fields" in "%s".'%name)
         inst._scrape_fields = scrape_fields
+        if hasattr(inst, '_scrape_valid_fields'):
+            raise TypeError('Conflict for "_scrape_valid_fields" in "%s".'%name)
+        inst._scrape_valid_fields = scrape_valid_fields
 
         # Return the instance.
         return inst

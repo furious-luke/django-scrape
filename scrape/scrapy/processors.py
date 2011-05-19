@@ -138,8 +138,9 @@ class Date(object):
 
 class EverythingAfter(object):
 
-    def __init__(self, delim):
+    def __init__(self, delim, max_length=None):
         self.delim = delim
+        self.max_length = max_length
 
     def __call__(self, values):
         values = arg_to_iter(values)
@@ -148,6 +149,8 @@ class EverythingAfter(object):
             idx = value.find(self.delim)
             if idx != -1:
                 value = value[idx + len(self.delim):]
-            if value:
-                out_values.append(value)
+                if value:
+                    if self.max_length and len(value) > self.max_length:
+                        value = value[:self.max_length]
+                    out_values.append(value)
         return out_values
