@@ -10,6 +10,9 @@ class ScrapeModelMetaclass(ModelBase):
     # represent the validity of target model's fields.
     def __new__(cls, name, bases, attrs):
 
+        def _is_target_field(field_name, include_fields, exclude_fields):
+            return not (field_name in exclude_fields or (include_fields and field_name not in include_fields))
+
         # Find the Meta class in our attributes.
         meta = attrs.get('Meta', None)
 
@@ -40,7 +43,7 @@ class ScrapeModelMetaclass(ModelBase):
         for field_name, field in target_fields:
             if field_name in ['id', 'pk']: # Skip the primary key.
                 continue
-            if field_name in exclude_fields or (include_fields and field_name not in include_fields):
+            if not _is_target_field(field_name, include_fields, exclude_fields):
                 continue
 
             # Add the "valid" field.
@@ -69,6 +72,10 @@ class ScrapeModelMetaclass(ModelBase):
         inst = super(ScrapeModelMetaclass, cls).__new__(cls, name, bases, attrs)
 
         # Add an attribute to get the fields that are to be scraped.
+        target_fields = [f[0] for f in target_fields]
+        if hasattr(inst, '_scrape_target_fields'):
+            raise TypeError('Conflict for "_scrape_target_fields" in "%s".'%name)
+        inst._scrape_target_fields = target_fields
         if hasattr(inst, '_scrape_fields'):
             raise TypeError('Conflict for "_scrape_fields" in "%s".'%name)
         inst._scrape_fields = scrape_fields
@@ -78,6 +85,8 @@ class ScrapeModelMetaclass(ModelBase):
 
         # Return the instance.
         return inst
+
+
 
 
 class ScrapeModel(models.Model):
