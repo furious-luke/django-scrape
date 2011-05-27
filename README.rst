@@ -20,7 +20,7 @@ embed them in ``django-scrape``.
 
   django-utils
     Some Django utilities, found at
-    "http://gitbub.com/furious-luke/python-utils".
+    "http://gitbub.com/furious-luke/django-utils".
 
 Building
 ========
