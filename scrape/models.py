@@ -3,6 +3,8 @@ from django.db.models import fields
 from django.db.models.base import ModelBase
 
 
+## Metaclass for setting up a model for scraping.
+# It's pretty unlikely this will need to be inherited or modified.
 class ScrapeModelMetaclass(ModelBase):
 
     ## Override creation.
@@ -87,8 +89,9 @@ class ScrapeModelMetaclass(ModelBase):
         return inst
 
 
-
-
+## Base class used to setup a model to be scraped.
+# Intended to be inherited by other models, sets some additional fields
+# used to track meta information about each field.
 class ScrapeModel(models.Model):
     __metaclass__ = ScrapeModelMetaclass
 

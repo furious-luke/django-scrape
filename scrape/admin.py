@@ -5,6 +5,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+## Create fieldsets for a scraped model's admin.
+# It's a little tricky to get the ordering correct and place the
+# meta information in its own fieldset. This function helps out.
 def make_scrape_fieldsets(fieldsets, obj):
     if obj:
 
@@ -39,6 +42,9 @@ def make_scrape_fieldsets(fieldsets, obj):
     return fieldsets
 
 
+## Base model for displaying a ScrapeModel in an admin.
+# Intended to be inherited by model admin classes used to display
+# models that inherit from ScrapeModel.
 class ScrapeModelAdmin(admin.ModelAdmin):
 
     def __init__(self, *args, **kwargs):
