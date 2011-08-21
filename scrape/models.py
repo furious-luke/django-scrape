@@ -52,38 +52,32 @@ class ScrapeModelMetaclass(ModelBase):
             attname = field_name + '_valid'
             scrape_fields.append(attname)
             scrape_valid_fields.append(attname)
-            if attname in attrs:
-                raise TypeError('Class attribute "%s" already exists for "%s".'%(attname, name))
-            attrs[attname] = models.BooleanField(default=False)
+            if attname not in attrs:
+                attrs[attname] = models.BooleanField(default=False)
 
             # Add the "source" field.
             attname = field_name + '_source'
             scrape_fields.append(attname)
-            if attname in attrs:
-                raise TypeError('Class attribute "%s" already exists for "%s".'%(attname, name))
-            attrs[attname] = models.URLField(verify_exists=False, blank=True, null=True)
+            if attname not in attrs:
+                attrs[attname] = models.URLField(verify_exists=False, blank=True, null=True)
 
             # Add the "timestamp" field.
             attname = field_name + '_timestamp'
             scrape_fields.append(attname)
-            if attname in attrs:
-                raise TypeError('Class attribute "%s" already exists for "%s".'%(attname, name))
-            attrs[attname] = models.DateTimeField(blank=True, null=True)
+            if attname not in attrs:
+                attrs[attname] = models.DateTimeField(blank=True, null=True)
 
         # Call our parent's __new__.
         inst = super(ScrapeModelMetaclass, cls).__new__(cls, name, bases, attrs)
 
         # Add an attribute to get the fields that are to be scraped.
         target_fields = [f[0] for f in target_fields]
-        if hasattr(inst, '_scrape_target_fields'):
-            raise TypeError('Conflict for "_scrape_target_fields" in "%s".'%name)
-        inst._scrape_target_fields = target_fields
-        if hasattr(inst, '_scrape_fields'):
-            raise TypeError('Conflict for "_scrape_fields" in "%s".'%name)
-        inst._scrape_fields = scrape_fields
-        if hasattr(inst, '_scrape_valid_fields'):
-            raise TypeError('Conflict for "_scrape_valid_fields" in "%s".'%name)
-        inst._scrape_valid_fields = scrape_valid_fields
+        if not hasattr(inst, '_scrape_target_fields'):
+            inst._scrape_target_fields = target_fields
+        if not hasattr(inst, '_scrape_fields'):
+            inst._scrape_fields = scrape_fields
+        if not hasattr(inst, '_scrape_valid_fields'):
+            inst._scrape_valid_fields = scrape_valid_fields
 
         # Return the instance.
         return inst
