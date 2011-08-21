@@ -26,4 +26,5 @@ setup(
     include_package_data=True,
     package_data={'': ['*.txt', '*.js', '*.html', '*.*']},
     install_requires=['setuptools'],
+    zip_safe=False,
 )
